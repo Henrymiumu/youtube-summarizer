@@ -1,138 +1,161 @@
 import os
-from dotenv import load_dotenv # 導入 load_dotenv
-from flask import Flask, request, render_template, jsonify
-from youtube_transcript_api import YouTubeTranscriptApi
-from openai import OpenAI
+from dotenv import load_dotenv # To load environment variables from .env file
+from flask import Flask, request, render_template, jsonify # Flask web framework components
+from youtube_transcript_api import YouTubeTranscriptApi # To fetch YouTube transcripts
+from openai import OpenAI # OpenAI client library (used for OpenRouter)
 
-load_dotenv() # 載入 .env 文件中的環境變數
+load_dotenv() # Load environment variables from .env file at the start
 
-# 從環境變數讀取 API 金鑰
+# Get API key from environment variables
 api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
-    raise ValueError("找不到 OPENAI_API_KEY 環境變數。請檢查你的 .env 檔案。")
+    raise ValueError("OPENAI_API_KEY environment variable not found. Check your .env file.")
 
-# 使用讀取到的金鑰，並指定 OpenRouter 的 base_url
+# Initialize the OpenAI client, pointing to OpenRouter's base URL
 client = OpenAI(
     api_key=api_key,
-    base_url="https://openrouter.ai/api/v1" 
+    base_url="https://openrouter.ai/api/v1"
 )
 
 app = Flask(__name__)
 
-def summarize_text(text, summary_language='en', summary_style='default'): # 預設風格為 'default'
+# Function to summarize text using the AI model
+def summarize_text(text, summary_language='en', summary_style='default'): # Default language is English, style is 'default'
     try:
-        # 檢查文字長度，避免過長輸入導致 API 錯誤或費用過高
-        # OpenAI GPT-3.5 Turbo 的 context window 大約是 4096 tokens
-        # 這裡簡單用字數限制，但 token 數更準確
-        max_chars = 12000 # 粗略限制，約等於 3000-4000 tokens
+        # Check text length to avoid exceeding API limits or high costs
+        # Note: Token count is more accurate than character count
+        max_chars = 12000 # Rough character limit (approx. 3000-4000 tokens)
         if len(text) > max_chars:
-             text = text[:max_chars] + "..." # 截斷過長文字
+             text = text[:max_chars] + "..." # Truncate long text
 
-        # 根據目標語言和風格設定 system prompt
+        # Set system prompt based on target language and style
         style_instruction = ""
         if summary_style == 'interesting':
-            style_instruction = " Make the summary engaging and highlight surprising or captivating points."
-            if summary_language == 'zh-Hant':
-                 style_instruction = " 使摘要更引人入勝，並強調令人驚訝或吸引人的觀點。"
+            style_instruction_en = " Make the summary engaging and highlight surprising or captivating points."
+            style_instruction_zh = " 使摘要更引人入勝，並強調令人驚訝或吸引人的觀點。"
+            style_instruction = style_instruction_zh if summary_language == 'zh-Hant' else style_instruction_en
         elif summary_style == 'detailed':
-            style_instruction = " Provide a more detailed summary, including key arguments and examples."
-            if summary_language == 'zh-Hant':
-                style_instruction = " 提供更詳細的摘要，包含關鍵論點和例子。"
+            style_instruction_en = " Provide a more detailed summary, including key arguments and examples."
+            style_instruction_zh = " 提供更詳細的摘要，包含關鍵論點和例子。"
+            style_instruction = style_instruction_zh if summary_language == 'zh-Hant' else style_instruction_en
         elif summary_style == 'concise':
-            style_instruction = " Provide a very brief and concise summary, focusing only on the main topic."
-            if summary_language == 'zh-Hant':
-                 style_instruction = " 提供非常簡短扼要的摘要，僅關注核心主題。"
+            style_instruction_en = " Provide a very brief and concise summary, focusing only on the main topic."
+            style_instruction_zh = " 提供非常簡短扼要的摘要，僅關注核心主題。"
+            style_instruction = style_instruction_zh if summary_language == 'zh-Hant' else style_instruction_en
 
         if summary_language == 'zh-Hant':
             base_prompt = "你是一個擅長總結 YouTube 影片字幕的 AI 助理。請用繁體中文回答。"
-        else: # 預設或其他情況使用英文
+        else: # Default to English
             base_prompt = "You are an AI assistant skilled at summarizing YouTube video transcripts. Please respond in English."
-        
-        system_prompt = base_prompt + style_instruction # 組合基礎提示和風格指示
-        print(f"System Prompt: {system_prompt}") # 偵錯用
+
+        system_prompt = base_prompt + style_instruction # Combine base prompt and style instruction
+        # print(f"System Prompt: {system_prompt}") # Keep for debugging if needed
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Please provide a summary based on the following YouTube transcript content:\n\n{text}"} # User prompt 可以通用
+                # User prompt can be generic as the system prompt guides the output language/style
+                {"role": "user", "content": f"Please provide a summary based on the following YouTube transcript content:\n\n{text}"}
             ],
-            max_tokens=1000, # 重新加入長度限制以符合額度
-            temperature=0.7 # 控制輸出的隨機性
+            max_tokens=1000, # Limit output tokens to fit budget/free tier
+            temperature=0.7 # Controls randomness
         )
 
-        # --- 偵錯：列印 API 回應 --- 
-        print("--- OpenRouter API Response ---")
-        print(response)
-        print("-----------------------------")
-        # -------------------------------
+        # --- Debug: Print API Response (Optional) ---
+        # print("--- OpenRouter API Response ---")
+        # print(response)
+        # print("-----------------------------")
+        # ------------------------------------------
 
-        # 檢查回應是否有效且包含 choices
+        # Check if the response is valid and contains choices
         if response and response.choices and len(response.choices) > 0 and response.choices[0].message:
             summary = response.choices[0].message.content
             if summary:
                  return summary.strip()
             else:
-                 print("API 返回的訊息內容為空")
-                 return "無法產生摘要：API 返回的內容為空。"
+                 print("API returned empty message content")
+                 return "Could not generate summary: API returned empty content."
         else:
-            # 如果回應無效或 choices 為空，返回錯誤訊息
-            print(f"無效的回應或空的 choices: {response}") # Log 供偵錯
-            error_message = "無法產生摘要：從 AI 模型收到無效的回應。"
+            # If response is invalid or choices are empty, return an error message
+            print(f"Invalid response or empty choices: {response}") # Log for debugging
+            error_message = "Could not generate summary: Received invalid response from AI model."
+            # Try to get more specific error details from the response object
             if response and hasattr(response, 'error') and response.error:
-                error_message += f" (錯誤詳情: {response.error})"
+                error_message += f" (Details: {response.error})"
             elif response and hasattr(response, 'message') and response.message:
-                 error_message += f" (訊息: {response.message})"
+                 error_message += f" (Message: {response.message})"
             return error_message
 
     except Exception as e:
-        print(f"OpenAI API 錯誤: {e}")
-        return f"無法產生摘要: {str(e)}"
+        print(f"Error during API call: {e}")
+        return f"Could not generate summary: {str(e)}"
 
+# Route for the main page
 @app.route('/')
 def index():
     return render_template('index.html')
 
+# Route to handle the summary generation request
 @app.route('/summary', methods=['POST'])
 def summary():
     video_url = request.form['video_url']
-    summary_language = request.form.get('summary_language', 'en')
-    summary_style = request.form.get('summary_style', 'default') # 獲取選擇的風格，預設為 'default'
+    summary_language = request.form.get('summary_language', 'en') # Default to 'en'
+    summary_style = request.form.get('summary_style', 'default') # Default to 'default'
     try:
+        # Extract video ID from URL
         video_id = ''
         if "v=" in video_url:
             video_id = video_url.split("v=")[1].split("&")[0]
         elif "youtu.be/" in video_url:
              video_id = video_url.split("youtu.be/")[1].split("?")[0]
         else:
-            return jsonify({'error': '無效的 YouTube 網址格式'}), 400
+            return jsonify({'error': 'Invalid YouTube URL format'}), 400
 
+        # Get available transcripts
         transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
 
-        # 嘗試獲取中文繁體字幕，如果沒有則獲取英文或其他可用字幕
+        # Try fetching preferred languages, fallback to others
+        transcript = None
         try:
+            # Try zh-Hant first
             transcript = transcript_list.find_generated_transcript(['zh-Hant', 'zh-TW']).fetch()
-        except:
+        except Exception:
              try:
+                 # Fallback to English
                  transcript = transcript_list.find_generated_transcript(['en']).fetch()
-             except Exception as e:
-                 # 如果找不到 zh-Hant 和 en，嘗試獲取任何可用的字幕
-                 available_transcripts = [t.language for t in transcript_list]
-                 if not available_transcripts:
-                     return jsonify({'error': f'找不到該影片的字幕'}), 400
-                 transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[available_transcripts[0]])
+             except Exception:
+                 try:
+                     # Fallback to any available transcript
+                     available_langs = [t.language for t in transcript_list]
+                     if available_langs:
+                         transcript = transcript_list.find_transcript(available_langs).fetch()
+                     else:
+                        return jsonify({'error': 'No transcripts found for this video'}), 400
+                 except Exception as e:
+                    return jsonify({'error': f'Could not fetch any transcript: {str(e)}'}), 500
+        
+        if not transcript:
+             return jsonify({'error': 'Failed to load transcript data'}), 500
 
+        # Join transcript parts into a single string
+        full_transcript = " ".join([item['text'] for item in transcript]) # Reverted based on previous testing? Let's assume item['text'] works now.
+        # If item['text'] fails again, change back to item.text
 
-        # 使用 item.text 而非 item['text'] 來兼容可能的物件類型
-        full_transcript = " ".join([item.text for item in transcript])
-
-        # 呼叫 AI 進行摘要，傳入目標語言和風格
+        # Call the AI summarization function
         summary_text = summarize_text(full_transcript, summary_language, summary_style)
 
+        # Return the result as JSON
         return jsonify({'summary': summary_text})
 
+    except YouTubeTranscriptApi.CouldNotRetrieveTranscript:
+         return jsonify({'error': 'Could not retrieve transcript. Check video URL or availability.'}), 404
     except Exception as e:
-        return jsonify({'error': f'處理時發生錯誤: {str(e)}'}), 500
+        print(f"Error processing summary request: {e}") # Log the error
+        return jsonify({'error': f'An error occurred during processing: {str(e)}'}), 500
 
+# Run the Flask app
 if __name__ == '__main__':
+    # debug=True enables auto-reload and detailed error pages during development
+    # Ensure debug=False for production deployment
     app.run(debug=True)
