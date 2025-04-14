@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title id="title">YouTube Video Summary</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 2em;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        .container {
+            background-color: #fff;
+            padding: 2em;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            max-width: 600px;
+            margin: auto;
+        }
+        h1 {
+            color: #555;
+            text-align: center;
+        }
+        label {
+            display: block;
+            margin-bottom: 0.5em;
+            font-weight: bold;
+        }
+        input[type="text"] {
+            width: calc(100% - 22px); /* Adjust width considering padding and border */
+            padding: 10px;
+            margin-bottom: 1em;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1em;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #summaryResult {
+            margin-top: 1.5em;
+            padding: 1em;
+            background-color: #e9ecef;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            white-space: pre-wrap; /* Preserve whitespace and newlines */
+            min-height: 50px;
+        }
+        .loading {
+             text-align: center;
+             font-style: italic;
+             color: #666;
+        }
+        .error {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .lang-selector {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+        }
+        .style-options {
+            margin-top: 1em;
+            margin-bottom: 1em;
+            text-align: center;
+        }
+        .style-options button {
+            margin: 0 5px;
+            background-color: #6c757d;
+             border: 1px solid #6c757d;
+        }
+         .style-options button.active {
+            background-color: #007bff;
+            border-color: #0056b3;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="lang-selector">
+        <label for="language" id="langLabel">Language:</label>
+        <select id="language" onchange="setLanguage(this.value)">
+            <option value="en">English</option>
+            <option value="zh-Hant">繁體中文</option>
+        </select>
+    </div>
+
+    <div class="container">
+        <h1 id="mainTitle">YouTube Video Summary</h1>
+        <form id="summaryForm">
+            <label for="video_url" id="urlLabel">Enter YouTube Video URL:</label>
+            <input type="text" id="video_url" name="video_url" required>
+            <button type="submit" id="submitButton">Generate Summary</button>
+        </form>
+
+        <div class="style-options">
+            <span id="styleLabel">Summary Style:</span> 
+            <button type="button" id="style-default" class="active">Default</button>
+            <button type="button" id="style-interesting">Interesting</button>
+            <button type="button" id="style-detailed">Detailed</button>
+            <button type="button" id="style-concise">Concise</button>
+        </div>
+
+        <h2 id="resultTitle">Summary Result:</h2>
+        <div id="summaryResult"><span id="placeholderText">Please enter a URL and click the button to generate the summary.</span></div>
+    </div>
+
+    <script>
+        const uiStrings = {
+            'en': {
+                'title': 'YouTube Video Summary',
+                'langLabel': 'Language:',
+                'mainTitle': 'YouTube Video Summary',
+                'urlLabel': 'Enter YouTube Video URL:',
+                'submitButton': 'Generate Summary',
+                'resultTitle': 'Summary Result:',
+                'placeholderText': 'Please enter a URL and click the button to generate the summary.',
+                'loadingText': 'Processing, please wait...',
+                'errorPrefix': 'Error:',
+                'clientErrorPrefix': 'Client Error:',
+                'emptyResultError': 'Could not generate summary: API returned empty content.',
+                'invalidResponseError': 'Could not generate summary: Received invalid response from AI model.',
+                'styleLabel': 'Summary Style:',
+                'styleDefault': 'Default',
+                'styleInteresting': 'Interesting',
+                'styleDetailed': 'Detailed',
+                'styleConcise': 'Concise'
+            },
+            'zh-Hant': {
+                'title': 'YouTube 影片摘要',
+                'langLabel': '語言:',
+                'mainTitle': 'YouTube 影片摘要',
+                'urlLabel': '請輸入 YouTube 影片網址：',
+                'submitButton': '產生摘要',
+                'resultTitle': '摘要結果：',
+                'placeholderText': '請輸入網址並點擊按鈕以產生摘要。',
+                'loadingText': '處理中，請稍候...',
+                'errorPrefix': '錯誤：',
+                'clientErrorPrefix': '客戶端錯誤：',
+                'emptyResultError': '無法產生摘要：API 返回的內容為空。',
+                'invalidResponseError': '無法產生摘要：從 AI 模型收到無效的回應。',
+                'styleLabel': '摘要風格：',
+                'styleDefault': '預設',
+                'styleInteresting': '更有趣',
+                'styleDetailed': '更多詳情',
+                'styleConcise': '更簡潔'
+            }
+        };
+
+        const form = document.getElementById('summaryForm');
+        const summaryResultDiv = document.getElementById('summaryResult');
+        const languageSelector = document.getElementById('language');
+        const styleButtonsContainer = document.querySelector('.style-options');
+        let currentStyle = 'default'; // Default style
+
+        function updateUI(lang) {
+            const strings = uiStrings[lang];
+            document.getElementById('title').textContent = strings.title;
+            document.getElementById('langLabel').textContent = strings.langLabel;
+            document.getElementById('mainTitle').textContent = strings.mainTitle;
+            document.getElementById('urlLabel').textContent = strings.urlLabel;
+            document.getElementById('submitButton').textContent = strings.submitButton;
+            document.getElementById('resultTitle').textContent = strings.resultTitle;
+            // Only update placeholder if it's the initial state
+            const placeholderSpan = document.getElementById('placeholderText');
+            if (placeholderSpan) {
+                 placeholderSpan.textContent = strings.placeholderText;
+            }
+            languageSelector.value = lang; // Sync dropdown selection
+            document.getElementById('styleLabel').textContent = strings.styleLabel;
+            document.getElementById('style-default').textContent = strings.styleDefault;
+            document.getElementById('style-interesting').textContent = strings.styleInteresting;
+            document.getElementById('style-detailed').textContent = strings.styleDetailed;
+            document.getElementById('style-concise').textContent = strings.styleConcise;
+        }
+
+        function setLanguage(lang) {
+            if (uiStrings[lang]) {
+                updateUI(lang);
+                // Optional: Store preference in localStorage
+                // localStorage.setItem('preferredLanguage', lang);
+            }
+        }
+
+        // Style button click handler
+        styleButtonsContainer.addEventListener('click', (event) => {
+            if (event.target.tagName === 'BUTTON') {
+                // Remove active class from all buttons
+                styleButtonsContainer.querySelectorAll('button').forEach(btn => btn.classList.remove('active'));
+                // Add active class to the clicked button
+                event.target.classList.add('active');
+                // Update current style based on button ID
+                currentStyle = event.target.id.replace('style-', ''); // e.g., 'default', 'interesting'
+            }
+        });
+
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const videoUrl = document.getElementById('video_url').value;
+            const selectedLang = languageSelector.value;
+            const currentUIStrings = uiStrings[selectedLang];
+
+            summaryResultDiv.innerHTML = `<div class="loading">${currentUIStrings.loadingText}</div>`;
+
+            try {
+                const response = await fetch('/summary', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    // Send video URL, language, and STYLE
+                    body: `video_url=${encodeURIComponent(videoUrl)}&summary_language=${selectedLang}&summary_style=${currentStyle}`
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    summaryResultDiv.textContent = data.summary;
+                    summaryResultDiv.classList.remove('error');
+                } else {
+                    // Use localized error messages if possible
+                    let errorMsg = data.error || 'Unknown error';
+                    if (errorMsg.includes('API 返回的內容為空')) errorMsg = currentUIStrings.emptyResultError;
+                    else if (errorMsg.includes('收到無效的回應')) errorMsg = currentUIStrings.invalidResponseError;
+
+                    summaryResultDiv.textContent = `${currentUIStrings.errorPrefix} ${errorMsg}`;
+                    summaryResultDiv.classList.add('error');
+                }
+            } catch (error) {
+                summaryResultDiv.textContent = `${currentUIStrings.clientErrorPrefix} ${error}`;
+                summaryResultDiv.classList.add('error');
+            }
+        });
+
+        // Set initial language (default to English, check localStorage later if needed)
+        // const preferredLang = localStorage.getItem('preferredLanguage') || 'en';
+        const preferredLang = 'en'; // Default to English
+        setLanguage(preferredLang);
+
+    </script>
+</body>
+</html> 
